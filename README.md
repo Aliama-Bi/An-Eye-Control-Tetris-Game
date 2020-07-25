@@ -1,1 +1,7 @@
 # An-Eye-Control-Tetris-Game
+
+The main motivation of this project is to provide a fun and engaging activity that allows users to relax strained eyes. Utilised the latter non-invasive strategy to create a visual training product allowing users to perform targeted eye motions in a fun and engaging way. 
+
+The eye movement data is non-invasively collected by measuring potential variations between a pair of electrodes placed on either side of the users’ eyes from the oscillatory electric signals (electrooculogram - EOG), obtained by using the Spiker Box provided by the Backyards Brain team. As the collected EOG signals are very faint and contaminated with instrumental and confounding brain wave noise, they are amplified, filtered before being differentiated using the Random Forest classification model implemented in R.
+
+Classification is a subcategory of supervised learning algorithms which is used to predict the categorical class labels of new instances based on past observations. The first step towards the development of a machine learning model is collecting eye movement data using the Spiker Box and the help of MATLAB code from our Physics colleagues (see Data Collection). Then, the collected and transferred data is feature selected, trained by applying different machine learning algorithms models and evaluated by using the cross-validation method. Once the model is trained, new wave signals from the participant are able to be classified and used as instructions for the Tetris game implemented on Python.
