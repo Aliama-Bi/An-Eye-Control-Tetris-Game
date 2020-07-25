@@ -1,0 +1,1359 @@
+---
+title: "Interdisciplinary Reproducible Report"
+author: 'Group 14: 480436913, 480139690, 480372747, 490001763'
+date: "04/06/2020"
+output:
+  html_document:
+    theme: lumen 
+    fig_caption: yes
+    number_sections: false
+    self_contained: yes
+    toc: true
+    toc_depth: 3
+    toc_float: true 
+    code_folding: hide
+    highlight: pygments
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, warning = FALSE, include = FALSE}
+library(tidyverse)
+library(dplyr)
+library(tsfeatures)
+library(tuneR)
+library(GGally)
+library(data.table)
+library(grid)
+library(gridExtra)
+library(cvTools)
+library(ggplot2)
+library(e1071)
+library(randomForest)
+library(caret)
+library(devtools)
+library(xlsx)
+library(kableExtra)
+library(knitr)
+```
+
+All of the related dataset and images: https://github.sydney.edu.au/xibi6298/Group-14-Interdisciplinary-reproducible-report.git
+<!-- Loading Data -->
+```{r Loading In Up down blink data,include=FALSE,warning=FALSE, cache=TRUE}
+##Up, Down Blink - ts features
+wave_seq= readRDS('data/Best-data/RDS_files/best_wave_seq.rds')
+labels = unlist(readRDS('data/Best-data/RDS_files/best_wave_LABEL.rds'),recursive = FALSE)
+
+## up, Down using Using tsfeatures
+Y_list = wave_seq
+Y_lab_UBD = labels
+Y_features_UDB_tsfeatures <- cbind(
+  tsfeatures(Y_list,
+            c("lumpiness")),
+   tsfeatures(Y_list,
+             c("mean","var"), scale=FALSE, na.rm=TRUE),
+   tsfeatures(Y_list,
+             c("max_level_shift"), trim=TRUE),
+  tsfeatures(Y_list,"entropy"),
+  tsfeatures(Y_list,"flat_spots"),
+  tsfeatures(Y_list,"crossing_points"),
+  tsfeatures(Y_list, "max_kl_shift", width=48),
+  tsfeatures(Y_list,"max_var_shift", trim=TRUE)
+  )
+X_UBD_tsfeatures = as.matrix(Y_features_UDB_tsfeatures)
+## Up down Blink - our features
+two_peak_difference_time=seq(length=length(Y_list))
+peak_trough_diff_time=seq(length=length(Y_list))
+peak_trough_diff_amp=seq(length=length(Y_list))
+first_peak_bigger_second_peak=seq(length=length(Y_list))
+##New features
+for(i in 1:length(Y_list)){
+  Y=Y_list[[i]]
+  minindex=which.min(Y)
+  first_max=-1000
+  second_max=-1000
+  if(minindex<100){
+    first_max=which.max(Y)
+    first_half=Y[1:first_max]
+    second_half=Y[first_max+1:length(Y)]
+    minindex=which.min(second_half)+first_max
+    second_max=which.max(Y[minindex:length(Y)])+minindex
+  }
+  else{
+    first_max=which.max(Y[1:minindex])
+    second_max=which.max(Y[minindex:length(Y)])+minindex
+  }
+  if(first_max<1000){
+    minindex=which.min(Y)
+    first_max=which.max(Y[1000:minindex])+1000
+    #minindex=which.min(second_half)+first_max
+    second_max=which.max(Y[minindex:length(Y)])+minindex
+  }
+  two_peak_difference_time[i]=second_max-first_max
+  peak_trough_diff_time[i]=minindex-first_max
+  peak_trough_diff_amp[i]=abs(Y[first_max])-abs(Y[minindex])
+  first_peak_bigger_second_peak[i]=Y[first_max]>Y[second_max]
+}
+meanY=unlist(lapply(Y_list,mean))
+varY=unlist(lapply(Y_list,var))
+minY=unlist(lapply(Y_list,min))
+maxY=unlist(lapply(Y_list,max))
+Y_features <- cbind(
+  meanY,
+  varY,
+  minY,
+  maxY,
+  two_peak_difference_time,
+  peak_trough_diff_time,
+  peak_trough_diff_amp,
+  first_peak_bigger_second_peak)
+X_UBD = as.matrix(Y_features)
+y_UBD = Y_lab_UBD 
+dfUDB<-X_UBD %>% as_tibble() %>% add_column(Label=y_UBD)
+```
+
+```{r Loading in All Data,include=FALSE,warning=FALSE, cache=TRUE}
+## All 
+## All - tsfeatures
+wave_seq= readRDS('data/Best-data/RDS_files/ALL_wave_seq_UBD.rds')
+labels = unlist(readRDS('data/Best-data/RDS_files/ALL_LABEL_UBD.rds'),recursive = FALSE)
+Y_list = wave_seq
+Y_lab_ALL = labels
+Y_features_ALL_tsfeatures <- cbind(
+  tsfeatures(Y_list,
+            c("lumpiness")),
+   tsfeatures(Y_list,
+             c("mean","var"), scale=FALSE, na.rm=TRUE),
+   tsfeatures(Y_list,
+             c("max_level_shift"), trim=TRUE),
+  tsfeatures(Y_list,"entropy"),
+  tsfeatures(Y_list,"flat_spots"),
+  tsfeatures(Y_list,"crossing_points"),
+  tsfeatures(Y_list, "max_kl_shift", width=48),
+  tsfeatures(Y_list,"max_var_shift", trim=TRUE)
+  )
+X_ALL_tsfeatures = as.matrix(Y_features_ALL_tsfeatures)
+##All - our features
+two_peak_difference_time=seq(length=length(Y_list))
+peak_trough_diff_time=seq(length=length(Y_list))
+peak_trough_diff_amp=seq(length=length(Y_list))
+first_peak_bigger_second_peak=seq(length=length(Y_list))
+##New features
+for(i in 1:length(Y_list)){
+  Y=Y_list[[i]]
+  minindex=which.min(Y)
+  first_max=-1000
+  second_max=-1000
+  if(minindex<100){
+    first_max=which.max(Y)
+    first_half=Y[1:first_max]
+    second_half=Y[first_max+1:length(Y)]
+    minindex=which.min(second_half)+first_max
+    second_max=which.max(Y[minindex:length(Y)])+minindex
+  }
+  else{
+    first_max=which.max(Y[1:minindex])
+    second_max=which.max(Y[minindex:length(Y)])+minindex
+  }
+  if(first_max<1000){
+    minindex=which.min(Y)
+    first_max=which.max(Y[1000:minindex])+1000
+    #minindex=which.min(second_half)+first_max
+    second_max=which.max(Y[minindex:length(Y)])+minindex
+  }
+  two_peak_difference_time[i]=second_max-first_max
+  peak_trough_diff_time[i]=minindex-first_max
+  peak_trough_diff_amp[i]=abs(Y[first_max])-abs(Y[minindex])
+  first_peak_bigger_second_peak[i]=Y[first_max]>Y[second_max]
+}
+meanY=unlist(lapply(Y_list,mean))
+varY=unlist(lapply(Y_list,var))
+minY=unlist(lapply(Y_list,min))
+maxY=unlist(lapply(Y_list,max))
+Y_features_Selected_ALL <- cbind(
+  meanY,
+  varY,
+  minY,
+  maxY,
+  two_peak_difference_time,
+  peak_trough_diff_time,
+  peak_trough_diff_amp,
+  first_peak_bigger_second_peak)
+X_ALL_5 = as.matrix(Y_features_Selected_ALL)
+y_ALL_5 = Y_lab_ALL 
+df<-X_ALL_5 %>% as_tibble() %>% add_column(Label=y_ALL_5)
+```
+
+```{r loading in left right blink data, include=FALSE,warning=FALSE, cache = TRUE}
+##Left right blink - ts features
+wave_seq= readRDS('data/Best-data/RDS_files/LR_BLINK_seq.rds')
+labels = unlist(readRDS('data/Best-data/RDS_files/LR_BLINK_LABEL.rds'),recursive = FALSE)
+## Left right blink using Using tsfeatures
+Y_list = wave_seq
+Y_lab_LRB = labels
+Y_features_LRB_tsfeatures <- cbind(
+  tsfeatures(Y_list,
+            c("lumpiness")),
+   tsfeatures(Y_list,
+             c("mean","var"), scale=FALSE, na.rm=TRUE),
+   tsfeatures(Y_list,
+             c("max_level_shift"), trim=TRUE),
+  tsfeatures(Y_list,"entropy"),
+  tsfeatures(Y_list,"flat_spots"),
+  tsfeatures(Y_list,"crossing_points"),
+  tsfeatures(Y_list, "max_kl_shift", width=48),
+  tsfeatures(Y_list,"max_var_shift", trim=TRUE)
+  )
+X_LRB_tsfeatures = as.matrix(Y_features_LRB_tsfeatures)
+## Left right Blink - our features
+two_peak_difference_time=seq(length=length(Y_list))
+peak_trough_diff_time=seq(length=length(Y_list))
+peak_trough_diff_amp=seq(length=length(Y_list))
+first_peak_bigger_second_peak=seq(length=length(Y_list))
+##New features
+for(i in 1:length(Y_list)){
+  Y=Y_list[[i]]
+  minindex=which.min(Y)
+  first_max=-1000
+  second_max=-1000
+  if(minindex<100){
+    first_max=which.max(Y)
+    first_half=Y[1:first_max]
+    second_half=Y[first_max+1:length(Y)]
+    minindex=which.min(second_half)+first_max
+    second_max=which.max(Y[minindex:length(Y)])+minindex
+  }
+  else{
+    first_max=which.max(Y[1:minindex])
+    second_max=which.max(Y[minindex:length(Y)])+minindex
+  }
+  if(first_max<1000){
+    minindex=which.min(Y)
+    first_max=which.max(Y[1000:minindex])+1000
+    #minindex=which.min(second_half)+first_max
+    second_max=which.max(Y[minindex:length(Y)])+minindex
+  }
+  two_peak_difference_time[i]=second_max-first_max
+  peak_trough_diff_time[i]=minindex-first_max
+  peak_trough_diff_amp[i]=abs(Y[first_max])-abs(Y[minindex])
+  first_peak_bigger_second_peak[i]=Y[first_max]>Y[second_max]
+}
+meanY=unlist(lapply(Y_list,mean))
+varY=unlist(lapply(Y_list,var))
+minY=unlist(lapply(Y_list,min))
+maxY=unlist(lapply(Y_list,max))
+Y_features <- cbind(
+  meanY,
+  varY,
+  minY,
+  maxY,
+  two_peak_difference_time,
+  peak_trough_diff_time,
+  peak_trough_diff_amp,
+  first_peak_bigger_second_peak)
+X_LRB = as.matrix(Y_features)
+y_LRB = Y_lab_LRB
+dfLRB<-X_LRB %>% as_tibble() %>% add_column(Label=y_LRB)
+```
+
+<!-- AIM & BACKGROUND -->
+# Aim and Background
+
+The main motivation of this project is to provide a fun and engaging activity that allows users to relax strained eyes. Eyestrain is a common condition that occurs when eyes get tired from intense use, such as while driving long distances or staring at computer screens and other digital devices. Increasingly office workers, students and children are utilising devices for work and entertainment, leading to an increased prevalence of eyestrain provoked by intense eye use. Symptoms of eye strain are uncomfortable and  include  soreness, burning, itchiness, dry eyes, double vision and even headache [[1]](#ref1). Moreover, eye strain can lead to long term eye damage, including adverse effects on the retinal microvascular structure which causes symptoms of cardiovascular disease like obesity and metabolic syndrome in young children [[2]](#ref2). Thus, it comes as no surprise that an increasing number of people in the industrialised world are seeking relief from discomfort due to eye strain. Treatments to reduce eyestrain, include changing lifestyle habits and environment, wearing glasses while reading or using digital devices, and training eyes with simple exercises [[1]](#ref1).
+
+Our aim is to utilise the latter non-invasive strategy to create a visual training product allowing users to perform targeted eye motions in a fun and engaging way. The human eye includes various muscles which will tire and strain when kept in a fixed configuration for sufficiently long periods. Our final product - the Tetris game, therefore, allows users to move differently shaped pieces using their eye movements, including left, right, up, down and blink. 
+
+The eye movement data is non-invasively collected by measuring potential variations between a pair of electrodes placed on either side of the users’ eyes from the oscillatory electric signals (electrooculogram - EOG), obtained by using the Spiker Box provided by the Backyards Brain team [[3]](#ref3). As the collected EOG signals are very faint and contaminated with instrumental and confounding brain wave noise, they are amplified, filtered before being differentiated using the Random Forest classification model implemented in R.
+
+Classification is a subcategory of supervised learning algorithms which is used to predict the categorical class labels of new instances based on past observations [[4]](#ref4). The first step towards the development of a machine learning model is collecting eye movement data using the Spiker Box and the help of MATLAB code from our Physics colleagues (see [Data Collection](#datacollect)). Then, the collected and transferred data is feature selected, trained by applying different machine learning algorithms models and evaluated by using the cross-validation method. Once the model is trained, new wave signals from the participant are able to be classified and used as instructions for the Tetris game implemented on Python. 
+
+<!-- METHOD 1 -->
+# Method
+
+<!-- DATA COLLECTION -->
+## [Data Collection]{#datacollect}
+As described in the Background section, the eye movement signals are detected and collected as EOG signals using the Backyard Brain’s Spiker Box. Two possible electrodes set ups are shown in figure 1:
+
+
+```{r  out.width = "50%", fig.cap = "[Figure 1](#fig1): Two possible electrodes set ups", fig.align='center'}
+knitr::include_graphics('images_for_report/electrodes-set-up.png.jpg') 
+```
+
+The collected signal is then transferred to the Spiker Box via a metal lead attached to each of the 3 electrodes. The transferred signal is very faint, of the order of 100mV and contaminated with instrumental and confounding brain wave noise. Therefore, when the signal reaches the Brain Box, it is amplified and filtered out part of to boost the EOG readings. The amplified analog signal is then transformed into digital form with a 10-bit resolution and a 10kHz sampling rate by using an A/D converter. After that, the live data signal is fed into the computer system via a USB connection and loaded using the MATLAB code provided by University of Sydney School of Physics [[5]](#ref5) and the Backyard Brain team [[6]](#ref6).
+
+In order to discriminate between signals in the input stream, we detect strain amplitude deviations from the equilibrium voltage. The first 10 seconds are devoted to raw data collection and the average over this time window is used to establish the baseline voltage. In addition, a Butterworth low-pass filter of order 5 and 5Hz is then applied to smooth the wave and thus improve the accuracy of the classification model. Butterworth filter is a type of signal processing filter designed to have a frequency response as flat as possible in the passband, which is the steam data with frequencies less than 5Hz in our case [[7]](#ref7). A high order of 5 is used to improve the limitation of the filter which occurs when generating an unwanted wide roll-off or transition band.
+
+
+```{r  out.width = "50%", fig.cap = "[Figure 2](#fig2): Butterworth Filter Design", fig.align='center'}
+knitr::include_graphics('images_for_report/butterworth-filter.jpg') 
+```
+
+The next step is to detect signals as amplitude deviations from the noise above an empirically determined threshold. We then wait for 1.7 seconds to let the full signal come in, being cut around and removed the baseline by subtracting the average noise. Over 100 signals for each of eye movement types (left, right, blink, up and down) are recorded and saved into .wav format file. These files are later loaded into R for training the classification models.
+
+<!-- FEATURE CREATION AND MODEL SELECTION -->
+## Feature Creation and Model Selection
+### Feature Creation
+
+```{r CV validation for UBD  tsfeatures, cache=TRUE}
+## UP DOWN BLINK
+# --------------------
+y = Y_lab_UBD 
+cvK = 5  # number of CV folds
+r = 100
+cv_50acc5_svm_ts =cv_50acc5_rm_ts=cv_50acc5_knn_ts= cv_acc5svm=cv_acc5rf=cv_acc5knn = c()
+for (i in 1:r) {
+  cvSets = cvTools::cvFolds(nrow(X_UBD_tsfeatures), cvK)  # permute all the data, into 5 folds
+  
+  cv_acc5svm=cv_acc5rf=cv_acc5knn  = NA  # initialise results vector
+  for (j in 1:cvK) {
+    test_id = cvSets$subsets[cvSets$which == j]
+    X_test = X_UBD_tsfeatures[test_id, ]
+    X_train = X_UBD_tsfeatures[-test_id, ]
+    y_test = y[test_id]
+    y_train = y[-test_id]
+    #svm
+    svm_res <- e1071::svm(x = X_train, y = as.factor(y_train))
+    fitsvm <- predict(svm_res, X_test)
+    cv_acc5svm[j] = table(fitsvm, y_test) %>% diag %>% sum %>% `/`(length(y_test))
+    
+    #knn
+    fitknn = class::knn(train = X_train, test = X_test, cl = y_train, k = 5)
+    cv_acc5knn[j] = table(fitknn, y_test) %>% diag %>% sum %>% `/`(length(y_test))    
+    
+    #random forest
+    rf_res <- randomForest::randomForest(x = X_train, y = as.factor(y_train))
+    fitrf <- predict(rf_res, X_test)
+    cv_acc5rf[j] = table(fitrf, y_test) %>% diag %>% sum %>% `/`(length(y_test))
+    
+  }
+  cv_50acc5_svm_ts <- append(cv_50acc5_svm_ts, mean(cv_acc5svm))
+  cv_50acc5_knn_ts <- append(cv_50acc5_knn_ts, mean(cv_acc5knn))
+  cv_50acc5_rm_ts <- append(cv_50acc5_rm_ts, mean(cv_acc5rf))
+  
+}
+```
+
+Initially the tsfeatures were tested as possible features, however the highest accuracy we achieved was approximately `r round(100*mean(cv_50acc5_rm_ts),2)`% for random forest, `r round(100*mean(cv_50acc5_svm_ts),2)`% for support vector machine and `r round(100*mean(cv_50acc5_knn_ts),2)`% for k-nearest-neighbours. As these are all not impressive considering the calculation time of ~2.4 seconds per wave, we decided to make our own features.
+
+Investigation of the obvious visual features of a wave indicate that there are key distinguishing features between different wave signals. Key indicators of wave signals were amplitude and time difference between observed peaks and troughs, and whether a large peak occurs before a trough. These were calculated and are evident in the below plots.
+
+```{r plots for wave features, warning=FALSE, fig.align = "center", fig.cap="Figure 3: Plots of some of the wave signal data collected against time over a 1.5 second interval. The red lines are the amplitude of the first observed peak, the blue lines are the times of the observed peaks and the green is the observed time of the green peak."}
+wave_seq= readRDS('data/Best-data/RDS_files/ALL_wave_seq_UBD.rds')
+labels = unlist(readRDS('data/Best-data/RDS_files/ALL_LABEL_UBD.rds'),recursive = FALSE)
+graphs_we_want_to_show=c(20,152,218,312,416)
+par(mfrow=c(2,3))
+for(i in graphs_we_want_to_show){
+ Y=wave_seq[[i]]
+ minindex=which.min(Y)
+ first_max=-1000
+ second_max=-1000
+ if(minindex<100){
+   first_max=which.max(Y)
+   first_half=Y[1:first_max]
+   second_half=Y[first_max+1:length(Y)]
+   minindex=which.min(second_half)+first_max
+   second_max=which.max(Y[minindex:length(Y)])+minindex
+ }
+ else{
+   first_max=which.max(Y[1:minindex])
+   second_max=which.max(Y[minindex:length(Y)])+minindex
+ }
+ if(first_max<1000){
+   minindex=which.min(Y)
+   first_max=which.max(Y[1000:minindex])+1000
+   #minindex=which.min(second_half)+first_max
+   second_max=which.max(Y[minindex:length(Y)])+minindex
+ }
+ two_peak_difference_time=second_max-first_max
+ peak_trough_diff_time=minindex-first_max
+ peak_trough_diff_amp=abs(Y[first_max])-abs(Y[minindex])
+ first_peak_bigger_second_peak=Y[first_max]>Y[second_max]
+ plot(Y, type="l", ylab = "Signal", main = paste(labels[i], i,"Peak trough difference time:", peak_trough_diff_time
+                                                 ,"\n Peak trough difference in amplitude", peak_trough_diff_amp))
+ abline(h=Y[first_max],col="red",add=T)
+ abline(h=Y[minindex],col="red",add=T)
+ abline(v=first_max,col="blue",add=T)
+ abline(v=second_max,col="blue",add=T)
+ abline(v=minindex,col="green",add=T)
+}
+```
+
+
+<!-- GINI -->
+### GINI
+We evaluate variable importance assessed by **gini index** based on the Random Forest algorithm [[8]](#ref8), [[9]](#ref9) for both tsfeatures and those we created manually. 
+
+To get an unbiased estimate of gini, we delete highly correlated variables. It is evident from below correlation matrix, two variable patterns:
+1. *the time and amplitude between two peaks* and the *time and amplitude between a peak and a trough*
+2. *minimum amplitude* and *amplitude variance* were highly correlated respectively.
+
+This is to be expected however it is evident from the below stepwise forward variable selection process that these are necessary to the model. We only delete *max_var_shift* which calculated by 'tsfeature' package as it is highly correlated with *lumpiness* and *max_level_shift*, evident in the below correlation matrix. 
+
+
+```{r, fig.align = 'center', fig.cap = "Figure 4: Correlation Matrix of Features"}
+X_ALL_tsfeatures = X_ALL_tsfeatures %>% as.data.frame()%>% dplyr::rename(
+  ts_lumpiness = lumpiness,
+  ts_max_level_shift = max_level_shift,
+  ts_time_level_shift = time_level_shift,
+  ts_entropy = entropy,
+  ts_flat_spots = flat_spots,
+  ts_crossing_points = crossing_points,
+  ts_max_kl_shift = max_kl_shift,
+  ts_time_kl_shift =  time_kl_shift,
+  ts_max_var_shift = max_var_shift,
+  ts_time_var_shift = time_var_shift)
+
+# combine tsfeatures and manually created ones
+features = cbind(X_ALL_5,X_ALL_tsfeatures)
+# correlation matrix
+# features %>% ggcorr(method = c("everything", "pearson")) 
+qtlcharts::iplotCorr(features,chartOpts=list(caption=paste("Figure 4: Correlation Matrix of Features") ))
+# delete max_var_shift
+features = features %>% select(-'ts_max_var_shift')
+```
+
+```{r vimPlot ,fig.width = 15, fig.cap = "Figure 5: Variance Importance Plot", fig.align = 'center'}
+label = Y_lab_ALL
+data = cbind(features,label) %>% as.data.frame()
+data$label = as.factor(data$label)
+n = length(data)
+data[,1:(n-1)] = lapply(data[,1:(n-1)],as.numeric)
+bagging <- randomForest(label~., data=data, ntree=100, importance=TRUE)
+varImpPlot(bagging,main='Variable Importance Plot')
+```
+
+
+From the above variable importance plot, it is clear that manually created features have overall higher variable importance than tsfeatures. Considering our limited computational power and agile requirement for the final product, the manually created features are selected. 
+
+<!-- Stepwise Forward Variable Selection -->
+### Stepwise Forward Variable Selection
+We utilised forward stepwise feature selection procedure to select the optimal combination of variables for our model. This was achieved by starting with a baseline of zero features, then adding one feature at a time, choosing the feature that leads to the highest model performance score in cross validation and repeating this until the model performance scores can no longer be improved by adding another feature.
+
+```{r, cache = TRUE}
+##Randomly split up the data into training and testing set
+cvK=5
+length_data=dim(df)[1]
+cv_acc_rf=numeric(length=cvK)
+cvSets = cvTools::cvFolds(length_data, cvK)
+num_selected=0
+y=y_ALL_5
+total_cv_acc<-numeric(length=dim(df)[2]-1)
+i=1
+variables_to_search_through<-1:8
+variables_to_keep<-c()
+step_wise_accuracies_ALL<-numeric(length=8)
+m=1
+while(sum(variables_to_search_through)>0){
+  total_cv_acc<-numeric(length=dim(df)[2]-1)
+  for (i in variables_to_search_through){
+    ##Only run the new variables
+    if(i!=0){
+      #print(i)
+      ##Create the data frame of X which will be tested
+      if(sum(variables_to_search_through)==36){
+        X<-df[,i]
+      }
+      else{
+        new_combination<-c(variables_to_keep,i)
+        X<-df[,new_combination]
+        # print(new_combination)
+        # print(paste("the dimension of the new data is ",dim(X)[2]))
+      }
+      ## Run cross fold validation
+      ## Run repeats to increase stability 
+      r=4
+      cv_acc_repeats<-numeric(length=r)
+      for(b in 1:r){
+        cv_acc<-numeric(length=cvK)
+        for(j in 1:cvK){
+          test_id = cvSets$subsets[cvSets$which == j]
+          X_test = X[test_id, ]
+          X_train = X[-test_id, ]
+          y_test = y[test_id]
+          y_train = y[-test_id]
+          rf_res <- randomForest::randomForest(x = X_train, y = as.factor(y_train))
+          fit5 <- predict(rf_res, X_test)
+          cv_acc[j] = table(fit5, y_test) %>% diag %>% sum %>% `/`(length(y_test))    
+        }
+        cv_acc_repeats[b]=mean(cv_acc)
+      }
+    }
+    total_cv_acc[i]=mean(cv_acc_repeats)
+  }
+      
+      ## Search which one has the highest accuracy
+      highest_accuracy<-which.max(total_cv_acc)
+      #store this accuracy
+      step_wise_accuracies_ALL[m]<-total_cv_acc[highest_accuracy]
+      
+      #Make a new variables to search through
+      new<-numeric(length=8)
+      m=m+1
+      #append this variable to the data frame
+      variables_to_keep<-append(variables_to_keep,highest_accuracy)
+      # print("highest accuracy is at")
+      # print(highest_accuracy)
+      # print("This is")
+      # print(colnames(df)[highest_accuracy])
+      for(k in 1:length(variables_to_search_through)){
+        if(variables_to_search_through[k]!=highest_accuracy){
+          new[k]=variables_to_search_through[k]
+        }
+      }
+      variables_to_search_through=new
+}
+namesALL<-colnames(df)[new_combination]
+```
+
+```{r,cache=TRUE}
+##Randomly split up the data into training and testing set
+cvK=5
+length_data=dim(dfUDB)[1]
+cv_acc_rf=numeric(length=cvK)
+cvSets = cvTools::cvFolds(length_data, cvK)
+num_selected=0
+y=y_UBD
+total_cv_acc<-numeric(length=dim(dfUDB)[2]-1)
+i=1
+variables_to_search_through<-1:8
+variables_to_keep<-c()
+step_wise_accuracies_UBD<-numeric(length=8)
+m=1
+while(sum(variables_to_search_through)>0){
+  total_cv_acc<-numeric(length=dim(dfUDB)[2]-1)
+  for (i in variables_to_search_through){
+    ##Only run the new variables
+    if(i!=0){
+      #print(i)
+      ##Create the data frame of X which will be tested
+      if(sum(variables_to_search_through)==36){
+        X<-dfUDB[,i]
+      }
+      else{
+        new_combination<-c(variables_to_keep,i)
+        X<-dfUDB[,new_combination]
+        # print(new_combination)
+        # print(paste("the dimension of the new data is ",dim(X)[2]))
+      }
+      ## Run cross fold validation
+      ## Run repeats to increase stability 
+      r=4
+      cv_acc_repeats<-numeric(length=r)
+      for(b in 1:r){
+        cv_acc<-numeric(length=cvK)
+        for(j in 1:cvK){
+          test_id = cvSets$subsets[cvSets$which == j]
+          X_test = X[test_id, ]
+          X_train = X[-test_id, ]
+          y_test = y[test_id]
+          y_train = y[-test_id]
+          rf_res <- randomForest::randomForest(x = X_train, y = as.factor(y_train))
+          fit5 <- predict(rf_res, X_test)
+          cv_acc[j] = table(fit5, y_test) %>% diag %>% sum %>% `/`(length(y_test))    
+        }
+        cv_acc_repeats[b]=mean(cv_acc)
+      }
+    }
+    total_cv_acc[i]=mean(cv_acc_repeats)
+  }
+      
+      ## Search which one has the highest accuracy
+      highest_accuracy<-which.max(total_cv_acc)
+      #store this accuracy
+      step_wise_accuracies_UBD[m]<-total_cv_acc[highest_accuracy]
+      
+      #Make a new variables to search through
+      new<-numeric(length=8)
+      m=m+1
+      #append this variable to the data frame
+      variables_to_keep<-append(variables_to_keep,highest_accuracy)
+      # print("highest accuracy is at")
+      # print(highest_accuracy)
+      # print("This is")
+      # print(colnames(df)[highest_accuracy])
+      for(k in 1:length(variables_to_search_through)){
+        if(variables_to_search_through[k]!=highest_accuracy){
+          new[k]=variables_to_search_through[k]
+        }
+      }
+      variables_to_search_through=new
+}
+namesUBD<-colnames(dfUDB)[new_combination]
+```
+
+
+```{r, cache = TRUE}
+##Randomly split up the data into training and testing set
+cvK=5
+length_data=dim(dfLRB)[1]
+cv_acc_rf=numeric(length=cvK)
+cvSets = cvTools::cvFolds(length_data, cvK)
+num_selected=0
+y=y_LRB
+total_cv_acc<-numeric(length=dim(dfLRB)[2]-1)
+i=1
+variables_to_search_through<-1:8
+variables_to_keep<-c()
+step_wise_accuracies_LRB<-numeric(length=8)
+m=1
+while(sum(variables_to_search_through)>0){
+  total_cv_acc<-numeric(length=dim(dfUDB)[2]-1)
+  for (i in variables_to_search_through){
+    ##Only run the new variables
+    if(i!=0){
+      #print(i)
+      ##Create the data frame of X which will be tested
+      if(sum(variables_to_search_through)==36){
+        X<-dfLRB[,i]
+      }
+      else{
+        new_combination<-c(variables_to_keep,i)
+        X<-dfLRB[,new_combination]
+        # print(new_combination)
+        # print(paste("the dimension of the new data is ",dim(X)[2]))
+      }
+      ## Run cross fold validation
+      ## Run repeats to increase stability 
+      r=4
+      cv_acc_repeats<-numeric(length=r)
+      for(b in 1:r){
+        cv_acc<-numeric(length=cvK)
+        for(j in 1:cvK){
+          test_id = cvSets$subsets[cvSets$which == j]
+          X_test = X[test_id, ]
+          X_train = X[-test_id, ]
+          y_test = y[test_id]
+          y_train = y[-test_id]
+          rf_res <- randomForest::randomForest(x = X_train, y = as.factor(y_train))
+          fit5 <- predict(rf_res, X_test)
+          cv_acc[j] = table(fit5, y_test) %>% diag %>% sum %>% `/`(length(y_test))    
+        }
+        cv_acc_repeats[b]=mean(cv_acc)
+      }
+    }
+    total_cv_acc[i]=mean(cv_acc_repeats)
+  }
+      
+      ## Search which one has the highest accuracy
+      highest_accuracy<-which.max(total_cv_acc)
+      #store this accuracy
+      step_wise_accuracies_LRB[m]<-total_cv_acc[highest_accuracy]
+      
+      #Make a new variables to search through
+      new<-numeric(length=8)
+      m=m+1
+      #append this variable to the data frame
+      variables_to_keep<-append(variables_to_keep,highest_accuracy)
+      # print("highest accuracy is at")
+      # print(highest_accuracy)
+      # print("This is")
+      # print(colnames(df)[highest_accuracy])
+      for(k in 1:length(variables_to_search_through)){
+        if(variables_to_search_through[k]!=highest_accuracy){
+          new[k]=variables_to_search_through[k]
+        }
+      }
+      variables_to_search_through=new
+}
+namesLRB<-colnames(dfLRB)[new_combination]
+```
+
+```{r, fig.cap="Figure 6: Five fold cross validation accuracies with 100 repeats after performing stepwise variable selection", fig.width = 14, fig.align = 'center'}
+step_wise_variable_selection_metrics<-data.frame(Variable_added=c(namesALL,namesUBD,namesLRB),
+                                                 Accuracy=c(step_wise_accuracies_ALL,step_wise_accuracies_UBD,step_wise_accuracies_LRB),
+                                                 Classifier=c(rep("ALL",8),rep("Up Down Blink",8),rep("Left Right Blink",8)),
+                                                 YCoord=c(step_wise_accuracies_ALL,step_wise_accuracies_UBD,step_wise_accuracies_LRB)+                                                   c(rep(+0.05,length=length(step_wise_accuracies_ALL)),rep(0.05,length=length(step_wise_accuracies_ALL)),rep(0.05,length=length(step_wise_accuracies_ALL))))
+
+coords=paste(round(100*step_wise_accuracies_ALL,1),sep=",")
+p1<-step_wise_variable_selection_metrics %>% filter(Classifier=="ALL")%>% ggplot()+
+  aes(x=factor(Variable_added,levels=namesALL),y=Accuracy)+
+  geom_point()+
+  theme_classic()+
+  ggtitle("Five fold cross validation accuracies \n with repeats after performing \n stepwise variable selection for \n all five eye movement classifier")+
+  xlab("Variable added")+
+  geom_label(aes(Variable_added,YCoord,label=coords))+
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+coords=paste(round(100*step_wise_accuracies_UBD,1),sep=",")
+p2<-step_wise_variable_selection_metrics %>% filter(Classifier=="Up Down Blink")%>% ggplot()+
+  aes(x=factor(Variable_added,levels=namesUBD),y=Accuracy)+
+  geom_point()+
+  theme_classic()+
+  ggtitle("Five fold cross validation accuracies with repeats \n after performing \n stepwise variable selection for \n the up down blink classifier")+
+  xlab("Variable added")+
+  geom_label(aes(Variable_added,YCoord,label=coords))+
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+
+p3<-step_wise_variable_selection_metrics %>% filter(Classifier=="Left Right Blink")%>% ggplot()+
+  aes(x=factor(Variable_added,levels=namesLRB),y=Accuracy)+
+  geom_point()+
+  theme_classic()+
+  ggtitle("Five fold cross validation accuracies with repeats \n after performing \n stepwise variable selection for \n the right left blink classifier")+
+  xlab("Variable added")+
+  geom_label(aes(Variable_added,YCoord,label=coords))+
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+
+
+grid.arrange(p1,p2,p3, ncol=3)
+```
+
+
+```{r,include=FALSE, cache=TRUE}
+start_time <- Sys.time()
+for(i in 1:1){
+Y=Y_list[[i]]
+minindex=which.min(Y)
+first_max=-1000
+second_max=-1000
+if(minindex<100){
+  first_max=which.max(Y)
+  first_half=Y[1:first_max]
+  second_half=Y[first_max+1:length(Y)]
+  minindex=which.min(second_half)+first_max
+  second_max=which.max(Y[minindex:length(Y)])+minindex
+}
+else{
+  first_max=which.max(Y[1:minindex])
+  second_max=which.max(Y[minindex:length(Y)])+minindex
+}
+if(first_max<1000){
+  minindex=which.min(Y)
+  first_max=which.max(Y[1000:minindex])+1000
+  #minindex=which.min(second_half)+first_max
+  second_max=which.max(Y[minindex:length(Y)])+minindex
+}
+two_peak_difference_time[i]=second_max-first_max
+peak_trough_diff_amp[i]=abs(Y[first_max])-abs(Y[minindex])
+first_peak_bigger_second_peak[i]=Y[first_max]>Y[second_max]
+mean(Y)
+var(Y)
+min(Y)
+max(Y)}
+end_time <- Sys.time()
+all_our_features_time<-as.numeric(substring(end_time - start_time,1))
+## Without three weak features
+start_time <- Sys.time()
+for(i in 1:1){
+Y=Y_list[[i]]
+# minindex=which.min(Y)
+# first_max=which.max(Y[1:minindex])
+# second_max=which.max(Y[minindex:length(Y)])+minindex
+minindex=which.min(Y)
+first_max=-1000
+second_max=-1000
+if(minindex<100){
+  first_max=which.max(Y)
+  first_half=Y[1:first_max]
+  second_half=Y[first_max+1:length(Y)]
+  minindex=which.min(second_half)+first_max
+  second_max=which.max(Y[minindex:length(Y)])+minindex
+}
+else{
+  first_max=which.max(Y[1:minindex])
+  second_max=which.max(Y[minindex:length(Y)])+minindex
+}
+if(first_max<1000){
+  minindex=which.min(Y)
+  first_max=which.max(Y[1000:minindex])+1000
+  #minindex=which.min(second_half)+first_max
+  second_max=which.max(Y[minindex:length(Y)])+minindex
+}
+two_peak_difference_time[i]=second_max-first_max
+peak_trough_diff_time[i]=minindex-first_max
+peak_trough_diff_amp[i]=abs(Y[first_max])-abs(Y[minindex])
+first_peak_bigger_second_peak[i]=Y[first_max]>Y[second_max]
+var(Y)
+min(Y)}
+end_time <- Sys.time()
+our_features_time_without_weak<-as.numeric(substring(end_time - start_time,1))
+```
+
+It is evident that there are five key variables which significantly impact accuracy for up down blink and all five classifier. The addition of the final three features adds minimal accuracy to the classifier, however the negligible addition of time **0.16** was believed to potentially help in the live condition and evidently from the graph with the left right blink classifier, so all eight were kept.
+
+```{r  out.width = "70%", fig.cap = "Figure 7: Selected features for Classifiers", fig.align='center'}
+knitr::include_graphics('images_for_report/Selected features.png') 
+```
+
+<!-- MODEL SELECTION -->
+### Model Selection
+As our team had a proficient understanding of k-nearest neighbours, random forest and support vector machine learning and not a comprehensive understanding of other algorithms such as deep learning, we selected these three classifiers for future evaluation.
+
+<!-- Evaluation Strategies -->
+## Evaluation Strategies
+In order to validate our product for final delivery, there were a number of tests we implemented to ensure the features and machine learning methods we selected in our model would create a viable classifier that performs well under the streaming condition. These tests included 5 fold Cross Validation over the training, calculations of response times in the training and live environment as well as accuracy scores of the classifiers in the live streaming environment.
+
+<!-- Cross Validation -->
+### Cross Validation
+Initially, we decided to validate the performance of our models first on the training data we collected by using repeated 5 fold cross validation. The cross validation method, which was, works by partitioning the training dataset in k subsets, then by training on the k-1 subsets it predicts the final subset in order to calculate an accuracy score. This process is repeated until it has predicted every single subset. These accuracy scores are averaged over the k subsets, and this whole process is repeated 100 times to create a vector of accuracy scores which can be graphically visualised in a box plot to determine performance. Therefore, we decided to test 3 different machine learning methods (SVM, Random Forest and KNN) on our training data using 5 fold cross validation, with the resulting accuracy scores as our performance metric. In addition to this, we also summed up all the confusion matrices that were created as a result of the 5 fold cross validation on the models. This allows us to see which eye movement the model is incorrectly classifying, and if a common error is detected it  would alert us to create new features in order to correct this.
+
+<!-- Timing -->
+### Timing
+We also validated our product by calculating the run time of the different models in both the training environment and live condition. Due to the fast pace nature of the Tetris game, minimising response lag time was important so our final model needs to show a response time which is viable for engaging game play. To calculate response time in the training environment, we calculated the time taken to classify each wave file in the training set and visualised the timings in a box plot to determine the approximate time it took for the model to calculate features and classify. Furthermore, in order to calculate the response time in the live condition, we calculated the time it took for the system to register an eye movement and move the Tetris piece by using a stopwatch the time, and repeating this multiple times gave us an approximate timing.
+
+<!-- Live Testing -->
+### Live Testing
+Finally, to validate our product, we proceeded to test how the models would perform in the live streaming condition which was the most important test to assess how the final product would behave when rolled out to users. To achieve this, we manually calculated the accuracy of the models in a two minute window of live game play by recording the intended movements and the resulting action, which was repeated three times for each model. Thus, we were able to visually create a table of accuracy scores in order to determine the final model viability.
+
+
+<!-- RESULTS -->
+# Results
+The results from our evaluation strategies are as follows:
+
+<!-- 5-Fold Cross Validation -->
+## 5-Fold Cross Validation
+```{r Cross fold Validation,include=FALSE, cache=TRUE}
+## UP DOWN BLINK
+# --------------------
+y = Y_lab_UBD 
+cvK = 5  # number of CV folds
+r = 100
+cv_50acc5_svm_UBD =cv_50acc5_rm_UBD=cv_50acc5_knn_UBD= cv_acc5svm=cv_acc5rf=cv_acc5knn = c()
+for (i in 1:r) {
+  cvSets = cvTools::cvFolds(nrow(X_UBD), cvK)  # permute all the data, into 5 folds
+  
+  cv_acc5svm=cv_acc5rf=cv_acc5knn  = NA  # initialise results vector
+  for (j in 1:cvK) {
+    test_id = cvSets$subsets[cvSets$which == j]
+    X_test = X_UBD[test_id, ]
+    X_train = X_UBD[-test_id, ]
+    y_test = y[test_id]
+    y_train = y[-test_id]
+    #svm
+    svm_res <- e1071::svm(x = X_train, y = as.factor(y_train))
+    fitsvm <- predict(svm_res, X_test)
+    cv_acc5svm[j] = table(fitsvm, y_test) %>% diag %>% sum %>% `/`(length(y_test))
+    
+    #knn
+    fitknn = class::knn(train = X_train, test = X_test, cl = y_train, k = 5)
+    cv_acc5knn[j] = table(fitknn, y_test) %>% diag %>% sum %>% `/`(length(y_test))    
+    
+    #random forest
+    rf_res <- randomForest::randomForest(x = X_train, y = as.factor(y_train))
+    fitrf <- predict(rf_res, X_test)
+    cv_acc5rf[j] = table(fitrf, y_test) %>% diag %>% sum %>% `/`(length(y_test))
+  } 
+  
+  cv_50acc5_svm_UBD <- append(cv_50acc5_svm_UBD, mean(cv_acc5svm))
+  cv_50acc5_knn_UBD <- append(cv_50acc5_knn_UBD, mean(cv_acc5knn))
+  cv_50acc5_rm_UBD<- append(cv_50acc5_rm_UBD, mean(cv_acc5rf))
+}
+  
+## ALL
+# --------------------
+y = Y_lab_ALL 
+cvK = 5  # number of CV folds
+r = 100
+cv_50acc5_svm_ALL =cv_50acc5_rm_ALL=cv_50acc5_knn_ALL= cv_acc5svm=cv_acc5rf=cv_acc5knn = c()
+cv_confusion_matrix<-matrix(rep(0,25),nrow=5,ncol=5)
+for (i in 1:r) {
+  cvSets = cvTools::cvFolds(nrow(X_ALL_5), cvK)  # permute all the data, into 5 folds
+  
+  cv_acc5svm=cv_acc5rf=cv_acc5knn  = NA  # initialise results vector
+  for (j in 1:cvK) {
+    test_id = cvSets$subsets[cvSets$which == j]
+    X_test = X_ALL_5[test_id, ]
+    X_train = X_ALL_5[-test_id, ]
+    y_test = y[test_id]
+    y_train = y[-test_id]
+    #svm
+    svm_res <- e1071::svm(x = X_train, y = as.factor(y_train))
+    fitsvm <- predict(svm_res, X_test)
+    cv_acc5svm[j] = table(fitsvm, y_test) %>% diag %>% sum %>% `/`(length(y_test))
+    
+    #knn
+    fitknn = class::knn(train = X_train, test = X_test, cl = y_train, k = 5)
+    cv_acc5knn[j] = table(fitknn, y_test) %>% diag %>% sum %>% `/`(length(y_test))    
+    
+    #random forest
+    rf_res <- randomForest::randomForest(x = X_train, y = as.factor(y_train))
+    fitrf <- predict(rf_res, X_test)
+    cv_acc5rf[j] = table(fitrf, y_test) %>% diag %>% sum %>% `/`(length(y_test))
+    cv_confusion_matrix=cv_confusion_matrix+table(fitrf, y_test)/(length(y_test))
+  }
+  
+  cv_50acc5_svm_ALL  <- append(cv_50acc5_svm_ALL, mean(cv_acc5svm))
+  cv_50acc5_knn_ALL  <- append(cv_50acc5_knn_ALL, mean(cv_acc5knn))
+  cv_50acc5_rm_ALL   <- append(cv_50acc5_rm_ALL, mean(cv_acc5rf))
+  
+}
+  
+## LRB
+# --------------------
+
+y = Y_lab_LRB 
+cvK = 5  # number of CV folds
+r = 100
+cv_50acc5_svm_LRB =cv_50acc5_rm_LRB=cv_50acc5_knn_LRB= cv_acc5svm=cv_acc5rf=cv_acc5knn = c()
+for (i in 1:r) {
+  cvSets = cvTools::cvFolds(nrow(X_LRB), cvK)  # permute all the data, into 5 folds
+  
+  cv_acc5svm=cv_acc5rf=cv_acc5knn  = NA  # initialise results vector
+  for (j in 1:cvK) {
+    test_id = cvSets$subsets[cvSets$which == j]
+    X_test = X_LRB[test_id, ]
+    X_train = X_LRB[-test_id, ]
+    y_test = y[test_id]
+    y_train = y[-test_id]
+    #svm
+    svm_res <- e1071::svm(x = X_train, y = as.factor(y_train))
+    fitsvm <- predict(svm_res, X_test)
+    cv_acc5svm[j] = table(fitsvm, y_test) %>% diag %>% sum %>% `/`(length(y_test))
+    
+    #knn
+    fitknn = class::knn(train = X_train, test = X_test, cl = y_train, k = 5)
+    cv_acc5knn[j] = table(fitknn, y_test) %>% diag %>% sum %>% `/`(length(y_test))    
+    
+    #random forest
+    rf_res <- randomForest::randomForest(x = X_train, y = as.factor(y_train))
+    fitrf <- predict(rf_res, X_test)
+    cv_acc5rf[j] = table(fitrf, y_test) %>% diag %>% sum %>% `/`(length(y_test))
+    
+  }
+    
+  
+  cv_50acc5_svm_LRB  <- append(cv_50acc5_svm_LRB, mean(cv_acc5svm))
+  cv_50acc5_knn_LRB <- append(cv_50acc5_knn_LRB, mean(cv_acc5knn))
+  cv_50acc5_rm_LRB  <- append(cv_50acc5_rm_LRB, mean(cv_acc5rf))
+  
+}
+cv_metrics<-data.frame(Classifier=c(rep("All",length=3*r),rep("Up Down Blink",length=3*r),rep("Left Right Blink",length=3*r)),
+                       Model=c(rep(c("Support Vector Machine","K-nearest neighbours","Random Forest"
+                                     ),each=100,times=1)),
+                       Accuracy=c(cv_50acc5_svm_ALL,cv_50acc5_knn_ALL,cv_50acc5_rm_ALL,
+                                  cv_50acc5_svm_UBD,cv_50acc5_knn_UBD,cv_50acc5_rm_UBD,
+                                  cv_50acc5_svm_LRB,cv_50acc5_knn_LRB,cv_50acc5_rm_LRB))
+```
+
+```{r, fig.cap = "Figure 8: Cross Validation Accuracy by Models and Sets", fig.align = 'center'}
+cv_metrics %>% ggplot()+aes(x=Model,y=Accuracy,col=Model)+
+  geom_boxplot()+
+  theme_classic()+
+  facet_wrap(~Classifier)+
+  ggtitle("Comparison of 100 repeats of 5 fold cross validation using features we created")+
+  xlab("Model Type")+
+  ylab("Cross validation accuracy")+
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+```
+
+```{r}
+cv_metrics %>% group_by(Model,Classifier) %>% summarise(Accuracy=round(mean(Accuracy),3)) %>%
+  pivot_wider(names_from = Model,values_from = Accuracy)%>% kable(caption = "Figure 9: Average accuracies of 100 repeats of five fold cross validation across different classifiers and models") %>%
+  kable_styling(full_width = T, bootstrap_options = c("striped", "hover"))
+```
+
+From our 5 fold cross validation test on the training dataset, we found that the random forest classifier had the highest overall performance with an average of `r round((cv_metrics %>% filter(Model=="Random Forest") %>% summarise(mean=mean(Accuracy)))[[1]],3)`, as opposed to `r round((cv_metrics %>% filter(Model=="K-nearest neighbours") %>% summarise(mean=mean(Accuracy)))[[1]],3)` for k-nearest neighbours and `r round((cv_metrics %>% filter(Model=="Support Vector Machine") %>% summarise(mean=mean(Accuracy)))[[1]],3)` for support vector machine. It is notable that the support vector machine classifier had a higher accuracy for the Left Right Blink classifier of `r round((cv_metrics %>% filter(Model=="Support Vector Machine") %>% filter(Classifier=="Left Right Blink") %>% summarise(mean=mean(Accuracy)))[[1]],3)` whereas the random forest had `r round((cv_metrics %>% filter(Model=="Random Forest") %>% filter(Classifier=="Left Right Blink") %>% summarise(mean=mean(Accuracy)))[[1]],3)`.
+
+For the all five eye movement classifier, the random forest classifier had an average accuracy of `r round((cv_metrics %>% filter(Model=="Random Forest") %>% filter(Classifier=="All") %>% summarise(mean=mean(Accuracy)))[[1]],3)`, whereas the left right blink classifier had an average accuracy of `r round((cv_metrics %>% filter(Model=="Random Forest") %>% filter(Classifier=="Left Right Blink") %>% summarise(mean=mean(Accuracy)))[[1]],3)` and the up down blink had an average accuracy of `r round((cv_metrics %>% filter(Model=="Random Forest") %>% filter(Classifier=="Up Down Blink") %>% summarise(mean=mean(Accuracy)))[[1]],3)`.
+
+Overall, due to this strong performance of over 90% accuracy from the SVM and Random Forest models in the tests over the training data, we can deem these models as suitable for use in the final product, while leaving out KNN due to the consistently low performance.
+
+In addition to these accuracy scores that can visually be seen in the box plots above, we can analyse the results of the Random Forest all five eye movement classifiers in the confusion matrix below.
+
+```{r confusion matrix, echo=FALSE}
+kable(cv_confusion_matrix/(r*cvK),caption="Figure 10: Average Confusion Matrix with Predicted (rows) vs Actual (columns) for 100 repeats of 5 fold cross validation") %>%
+  kable_styling(full_width = T, bootstrap_options = c("striped", "hover"))
+```
+
+From this matrix, we can see that the model had its errors approximately spread across the different eye movements, and not centered around just one eye movement direction which shows that all the eye movements are approximately as functional as each other, deeming the model valid for use in the final game.
+
+<!-- Response Time -->
+## Response Time
+```{r calculate_run_time, fig.cap = "Figure 11: Run Time of Classifiers", cache=TRUE, fig.align = 'center'}
+LRB_wave_seq = readRDS("Best-Data/RDS_files/LR_BLINK_seq.rds")
+LRB_wave_label = unlist(readRDS("Best-Data/RDS_files/LR_BLINK_LABEL.rds"),recursive = FALSE)
+Y_list = LRB_wave_seq
+Y_lab = LRB_wave_label
+two_peak_difference_time=seq(length=length(Y_list))
+peak_trough_diff_time=seq(length=length(Y_list))
+peak_trough_diff_amp=seq(length=length(Y_list))
+first_peak_bigger_second_peak=seq(length=length(Y_list))
+for(i in 1:length(Y_list)){
+  Y=Y_list[[i]]
+  
+  minindex=which.min(Y)
+  first_max=-1000
+  second_max=-1000
+  if(minindex<100){
+    first_max=which.max(Y)
+    first_half=Y[1:first_max]
+    second_half=Y[first_max+1:length(Y)]
+    minindex=which.min(second_half)+first_max
+    second_max=which.max(Y[minindex:length(Y)])+minindex
+  }
+  else{
+    first_max=which.max(Y[1:minindex])
+    second_max=which.max(Y[minindex:length(Y)])+minindex
+  }
+  if(first_max<1000){
+    minindex=which.min(Y)
+    first_max=which.max(Y[1000:minindex])+1000
+    second_max=which.max(Y[minindex:length(Y)])+minindex
+  }
+  two_peak_difference_time[i]=second_max-first_max
+  peak_trough_diff_time[i]=minindex-first_max
+  peak_trough_diff_amp[i]=abs(Y[first_max])-abs(Y[minindex])
+  first_peak_bigger_second_peak[i]=Y[first_max]>Y[second_max]
+}
+meanY=unlist(lapply(Y_list,mean))
+varY=unlist(lapply(Y_list,var))
+minY=unlist(lapply(Y_list,min))
+maxY=unlist(lapply(Y_list,max))
+Y_features_Selected <- cbind(
+  meanY,
+  varY,
+  minY,
+  maxY,
+  two_peak_difference_time,
+  peak_trough_diff_time,
+  peak_trough_diff_amp,
+  first_peak_bigger_second_peak)
+X = as.matrix(Y_features_Selected)
+y = Y_lab
+svm_model <- e1071::svm(x = X, y = as.factor(y))
+rf_model <- randomForest::randomForest(x = X, y = as.factor(y))
+svm_time_list = c()
+for(j in 1:length(LRB_wave_seq)){
+  start.time <- Sys.time()
+  Y_list = LRB_wave_seq[j]
+  
+  two_peak_difference_time=seq(length=length(Y_list))
+  peak_trough_diff_time=seq(length=length(Y_list))
+  peak_trough_diff_amp=seq(length=length(Y_list))
+  first_peak_bigger_second_peak=seq(length=length(Y_list))
+  
+  for(i in 1:length(Y_list)){
+    Y=Y_list[[i]]
+    
+    minindex=which.min(Y)
+    first_max=-1000
+    second_max=-1000
+    if(minindex<100){
+      first_max=which.max(Y)
+      first_half=Y[1:first_max]
+      second_half=Y[first_max+1:length(Y)]
+      minindex=which.min(second_half)+first_max
+      second_max=which.max(Y[minindex:length(Y)])+minindex
+    }
+    else{
+      first_max=which.max(Y[1:minindex])
+      second_max=which.max(Y[minindex:length(Y)])+minindex
+    }
+    if(first_max<1000){
+      minindex=which.min(Y)
+      first_max=which.max(Y[1000:minindex])+1000
+      second_max=which.max(Y[minindex:length(Y)])+minindex
+    }
+    two_peak_difference_time[i]=second_max-first_max
+    peak_trough_diff_time[i]=minindex-first_max
+    peak_trough_diff_amp[i]=abs(Y[first_max])-abs(Y[minindex])
+    first_peak_bigger_second_peak[i]=Y[first_max]>Y[second_max]
+  }
+  
+  meanY=unlist(lapply(Y_list,mean))
+  varY=unlist(lapply(Y_list,var))
+  minY=unlist(lapply(Y_list,min))
+  maxY=unlist(lapply(Y_list,max))
+  
+  Y_features_Selected <- cbind(
+    meanY,
+    varY,
+    minY,
+    maxY,
+    two_peak_difference_time,
+    peak_trough_diff_time,
+    peak_trough_diff_amp,
+    first_peak_bigger_second_peak)
+  
+  X = as.matrix(Y_features_Selected)
+  fit5 <- predict(svm_model, X)
+  end.time <- Sys.time()
+  time.taken <- end.time - start.time
+  
+  svm_time_list = append(svm_time_list,as.double(time.taken))
+}
+rf_time_list = c()
+for(j in 1:length(LRB_wave_seq)){
+  start.time <- Sys.time()
+  Y_list = LRB_wave_seq[j]
+  
+  two_peak_difference_time=seq(length=length(Y_list))
+  peak_trough_diff_time=seq(length=length(Y_list))
+  peak_trough_diff_amp=seq(length=length(Y_list))
+  first_peak_bigger_second_peak=seq(length=length(Y_list))
+  
+  for(i in 1:length(Y_list)){
+    Y=Y_list[[i]]
+    
+    minindex=which.min(Y)
+    first_max=-1000
+    second_max=-1000
+    if(minindex<100){
+      first_max=which.max(Y)
+      first_half=Y[1:first_max]
+      second_half=Y[first_max+1:length(Y)]
+      minindex=which.min(second_half)+first_max
+      second_max=which.max(Y[minindex:length(Y)])+minindex
+    }
+    else{
+      first_max=which.max(Y[1:minindex])
+      second_max=which.max(Y[minindex:length(Y)])+minindex
+    }
+    if(first_max<1000){
+      minindex=which.min(Y)
+      first_max=which.max(Y[1000:minindex])+1000
+      second_max=which.max(Y[minindex:length(Y)])+minindex
+    }
+    two_peak_difference_time[i]=second_max-first_max
+    peak_trough_diff_time[i]=minindex-first_max
+    peak_trough_diff_amp[i]=abs(Y[first_max])-abs(Y[minindex])
+    first_peak_bigger_second_peak[i]=Y[first_max]>Y[second_max]
+  }
+  
+  meanY=unlist(lapply(Y_list,mean))
+  varY=unlist(lapply(Y_list,var))
+  minY=unlist(lapply(Y_list,min))
+  maxY=unlist(lapply(Y_list,max))
+  
+  Y_features_Selected <- cbind(
+    meanY,
+    varY,
+    minY,
+    maxY,
+    two_peak_difference_time,
+    peak_trough_diff_time,
+    peak_trough_diff_amp,
+    first_peak_bigger_second_peak)
+  
+  X = as.matrix(Y_features_Selected)
+  fit5 <- predict(rf_model, X)
+  end.time <- Sys.time()
+  time.taken <- end.time - start.time
+  
+  rf_time_list = append(rf_time_list,as.double(time.taken))
+}
+boxplot(list(SVM = svm_time_list, RF = rf_time_list), ylim=c(0,0.03), main="Runtime of the Classifers", xlab="Models", ylab="Time (s)")
+```
+As seen in the boxplots above, the time taken for the features to be computed and classified in the training environment was extremely short and very similar between both the SVM and Random Forest methods. Additionally, from our test on the response time in the live environment, we found it takes approximately 2.0-2.5 seconds for the program to move a Tetris piece from when a user moves their eyes. We found that this lag time is low enough for a user to reasonably engage in the game play of the Tetris Game and thus makes the model valid for final production.
+
+<!-- Live Testing -->
+## Live Testing
+```{r live_condition_results, warning=FALSE}
+rf_liveResults = read.xlsx("Bens Code/Results/RF_LiveTesting.xlsx", 1, header=TRUE)
+svm_liveResults = read.xlsx("Bens Code/Results/SVM_LiveTesting.xlsx", 1, header=TRUE)
+
+rf_liveResults %>%
+  kable(col.names = c("Classifer", "Test 1 (%)", "Test 2 (%)", "Test 3 (%)", "Average (%)"), caption = "Figure 12: Results From Testing Random Forest Method") %>%
+  kable_styling(full_width = T, bootstrap_options = c("striped", "hover"))
+```
+
+```{r}
+svm_liveResults %>%
+  kable(col.names = c("Classifer", "Test 1 (%)", "Test 2 (%)", "Test 3 (%)", "Average (%)"), caption = "Figure 13: Results From Testing SVM Method") %>%
+  kable_styling(full_width = T, bootstrap_options = c("striped", "hover"))
+```
+
+As for the results of live condition testing, we can see from the tables of results above that the Left, Right Blink and the Up, Down Blink Classifiers performed perfectly. We can also see a drop in performance in the All 5 Signal models but with performance scores in the high 70’s, we can still deem the models accurate enough to be used in the final game. 
+
+<!-- Final Model Decision -->
+## Final Model Decision
+From the results of our evaluations strategies, we can see that the selection of a Random Forest Classifier is a valid model to use in our final product. Even though the SVM Classifier would also be valid, the slightly higher performance of the Random Forest Model in the both training tests and live conditions test would deem it appropriate as the first choice model for the final product.
+
+
+<!-- Deployment Process -->
+## Deployment Process
+<!-- Image here -->
+
+The overall deployment process can be divided into four parts: data collection, data processing, classification and feed instructions into product. A detail about each steps will be illustrated below:
+
+### Data Collection and Processing
+The wave signals are generated by the participant wearing the Brainbox, when participants moving their eyes, eye movement data can be collected by measuring electric potential variations between a pair of electrodes placed on either side of the eyes of the participant. We set up electrodes to be **1** that could accurately differentiate between all 5 eye movement. As outlined in Data Collection, when an event is identified the 1.5 second wave file is saved to be read into the R model, and a filtering process and event identification is applied to their wave signal.
+
+```{r  out.width = "70%", fig.cap = "Figure 14: Deployment Process", fig.align='center'}
+knitr::include_graphics('images_for_report/Deployment Process.png') 
+```
+
+<!-- Eye Movements Classifying & Game Playing -->
+### Eye Movements Classifying & Game Playing
+The participant is unable to play the game for the first 10 seconds as it is a calibration period, where the calibration is outlined in the Data Collection. After the first 10 seconds if an event is identified, the 1.5s wave signal is read into the R model and classified as a type of eye movement. After successfully classifying the eye movement, we save those classification results in a ‘instruction.txt’. Our visual training application is a simple 2D Tetris game, with its engine built in Python [[10]](#ref10), [[11]](#ref11). The game engine read instructions directly from ‘instruction.txt’. Instructions were received every 1 s to control the block’s motion continuously. The participant is required to remain still and not make facial expressions, whilst looking straight ahead between deliberate eye movements. This is necessary to reduce the noise detected in the wave signal, which increases accuracy of event identification and of the classifier. 
+
+<!-- Illustration about Tetris game -->
+## Illustration about Tetris game
+Our visual training application is a simple 2D Tetris game. When participants are playing the game, tetriminos (which are shapes composed of four squares) fall from the top of the screen with the user aiming to move the falling tetriminos around so they can fit together in a horizontal line. Although the user cannot win the game, they can score points by clearing as many lines as possible. Participants can send commands to control the moving direction and rotate the pieces by doing corresponding eye movements. There are two modes that can be chosen in the game. Vocabulary of the game commands are outlined in the below.
+<!-- Table: Vocabulary of real-time commands for Tetris game -->
+```{r  out.width = "70%", fig.cap = "Figure 15:Vocabulary of real-time commands for Tetris game", fig.align='center'}
+knitr::include_graphics('images_for_report/vocab.png') 
+```
+
+<!-- DISCUSSION & CONCLUSION -->
+# Discussion and Conclusion
+<!-- DISCUSSION -->
+## Discussion
+We have produced the Tetris game that allows users to move differently shaped pieces using their eye movements, including left, right, up, down and blink. The product performs very robustly in the live condition. The eye movement data is successfully amplified and double filtered in real-time, the Random Forest classifier has a live high accuracy score (78 %) and thus the input signals are identified accurately without significant delay (2.0-2.5 seconds). All of these elements contribute to a finished product that is fun and engaging for users to get rid of the eyestrain issue. However, there are a few shortcomings from the development of the final product that we still need to consider for further improvement.
+
+The first shortcoming of this project is related to the time lag between measuring the wave signal and implementing the game instruction. As described in the Result section, the total lag time for the program to execute the instruction and move a Tetris piece from when a user moves their eyes in the live condition is up to approximately 2.0 to 2.5 seconds, which is not ideal for a multiple-mode game like Tetris. The delay could occur while loading the collected and transformed signals from MATLAB to R for classification, and while loading the labelled data from R to Python. One method to overcome this issue is that we can try to put all the code into Python. This means all the stages from the live signal collection, eye movement prediction to Tetris deployment are performed in Python. In addition, the lag time could happen due to the high order of Butterworth low-pass filtering in the data collection process. As explained in the Data Collection section, increasing order allows quick roll-off around the cutoff frequency but could lead to considerable overshoot and ringing in the step response. As a result, we should consider using additional high-order methods of smoothing the signal, such as Bessel (linear phase), Chebyshev, or elliptical (Cauer) filter [[12]](#ref12).
+
+Another limitation of our final product is that the performance of the game with all 5 eye movements is not yet stable. One possible reason for this is because our classifier with selected features has not identified the difference in similar waveforms between the left (right) and down (up) signals with enough high accuracy. This could be improved by more deeply analysing the difference between the similarly shaped waves and thus selecting or dropping features to enhance the performance of the classification model. An additional method is to limit the use of filters by increasing the resolution of the collected signal. Similarly to electroencephalography (EEG), the Spiker Box receives EOG signal with a rapid temporal resolution but bad spatial resolution as the electrodes only measure the electric activity at the surface of the human body [[13]](#ref13). Therefore, we consider other approaches to ameliorate the spatial resolution of the Spiker Box, like applying the cortical imaging or surface Laplacians method [[14]](#ref14).
+
+<!-- CONCLUSION -->
+## Conclusion
+In conclusion, our Tetris game provides an engaging and non-invasive method to help a large proportion of the population reduce the common eye strain issue in the industrialised world. This project opens up many avenues for future advances in the field that could be explored with the allocation of more time and resources. For example, we could expand the product to create games allowing more than 5 eye movement inputs. Additionally, we could work on tailoring the product to individual eye disorders and their corresponding training regimes, as known as vision therapy. To summarise, we believe we worked efficiently and effectively in a new interdisciplinary environment, combining the strengths of each group member to come up with a product that works to a high standard, despite the CoVID-19 situation.
+
+<!-- STUDENT CONTRIBUTION -->
+# Student Contributions
+## Benjamin Winiarski
+As a data student, I was involved in the process of ensuring data collection quality, feature selection, evaluating the performance of different models and compiling the final results of the product. My initial role was to determine whether the initial data set already collected by Pablo would be sufficient for model creation, and as it wasn’t, I requested further wave signals to be collected for training. Using the newly collected data, I worked with Stacey to determine which features would best boost the training performance of the model, without adding any lag time, using forward feature selection. In addition, I also worked with Stacey to implement some newly created features (outside of the tsfeatures package) that would lead to higher training performance scores of the models. With this list of features, I then trained and tested the performance of different models (KNN, SVM and Randomforest) to determine the accuracy scores and run times in order to select the best one for the demonstration. I also compiled the results from when we tested the classifiers live in game play with Pablo and his brother, in order to create my script and slides for the presentation.
+
+## Chloe Bi
+As a data student with computer science background, my main role is to develop and maintain our game product, help generate initial training set using time series features and later on help select model using Random Forest Ensemble Algorithms. For game development, I used open source game structure ‘Pygame’, implemented a ‘Tetris’ game logic and UI. I worked with Pablo to rebuild the events receiver interface which fixed the limitation of original game structure that only allows input from keyboard and cursor from users. The final product can consecutively read instructions generated by classification model in R and correctly respond movements with negligible latency. I worked with Stacey to make an event identification algorithm and used that to generate training dataset, while Stacey investigated physics properties of wave signals, I focused on fixing data structure problems and code logic bugs. I worked with other data teammates on model selection, and I was assigned to estimate features’ importance using ‘Gini index’ based on Random Forest Ensemble Algorithms, evidencing that we can delete all features for optimal running time.
+
+
+## Jamie Hepburn
+As the second member of the Physics team, I came into the project with limited programming experience, and due to COVID-19 I was unable to access the SpikerBox. This meant that the role I performed naturally became mainly organizational, but I made sure to help out with data processing, analysis and troubleshooting wherever possible. In order to ensure the project flowed smoothly, I took charge of the meeting notes and endeavoured to accurately record the progress and difficulties occurring throughout the interdisciplinary collaboration which helped to inform our next steps. Using the Gannt chart created by Ben, I continually checked our progress with our initial goals and help to make sure we were working in parallel as much as possible and understood our tasks. In terms of assessments, I drafted each of our presentations in line with the marking rubric and used my research of the field throughout the project to inform how to effectively pitch our product whilst also considering its limitations. On the technical side I assisted with developing the code to allow signals to be read efficiently in the live condition and created scripts to calculate MATLAB counterparts for each feature used in the R classifier.
+
+
+## Mai Phuong Ho
+Before having the filtered data from Pablo, I tried to figure out which classifier model is the most robust by training and evaluate different models using the cross-validation method. The initial result gave that Random Forest model seems to be the best option with about 97% accuracy. Then, I attempted to put all the R code into Python using the rpy2 interface to Pandas, but it was unsuccessful due to the existing bugs in the rpy2 interface when being installed on Windows. For the final presentation, I wrote my script and created my presentation slides. I also took charge of formatting and submitting the final slides. In terms of the reproducible report, I am currently responsible for the aim, background and discussion of limitations and potential improvements in both disciplines. I am also writing the data collection process with the help of Physics students (Pablo and Jamie). Additionally, I take charge of formatting the report.
+
+
+## Pablo Bonilla
+I am the member assigned to the SpikerBox. Early on I wrote a MATLAB pipeline to differentiate between up, down and blink eye movements. However it performed poorly and could not be extended to include left and right looks. When we merged teams my main focus became bulk collection of clean data for model training. I first filtered the data using an FFT filter but after research in the literature decided to implement the state-of-the-art Butterworth filter in MATLAB. I worked with Jamie to develop a program that could automatically detect signals, truncate around them and save the clean, filtered and normalised wavelets onto files that were ready to be opened in R for model training and/or label classification. I collected over 1000 eye signals for model training. Once this was done I established the R-MATLAB connection by training a  knn model in R using Iris data. I worked with Stacey to advise on wave feature selection based on physics principles, with Chloe to efficiently connect the Tetris game to the overall product structure, with Ben to perform the required live tests for model evaluation and with Suri to draft the project pitch presentation and final presentation slides formatting.
+
+
+## Stacey Anastasia Birrell
+Initially, while our group was trying to figure out how to handle the streaming condition effectively, I worked with Chloe to make an event identification algorithm. We used this to identify events in filtered and unfiltered wave files, and created a training data set of filtered and unfiltered wave files. However, Pablo ended up creating an effective event classification algorithm in Matlab, advised us that the filtering process had minimal lag, and created a large filtered training data set so this work became redundant.
+
+With Ben we performed forward variable selection using the tsfeatures package to determine which tsfeatures would be best for the classifier. The classification accuracy we were achieving with tsfeatures was not satisfactory so Ben and I took it to the group to motivate discussion. After discussing the nature of the waves with the whole group, we brainstormed some key features that stood out to us about the wave signals. Then, from that discussion I calculated and performed in-sample testing of these new features which were the final features used in the model. As a result, the variable selection work process with Ben also became redundant. As the weeks progressed I would document my contribution in the meeting notes, and for presentations I wrote my script and created my presentation slides.
+
+
+<!-- BIBLIOGRAPHY -->
+# Bibliography {#ref}
+
+[1.]{#ref1} “Eyestrain,” Mayo Clinic, 18-Oct-2018. [Online]. Available: https://www.mayoclinic.org/diseases-conditions/eyestrain/symptoms-causes/syc-20372397. [Accessed: 04-Jun-2020].
+
+[2.]{#ref2} B. Gopinath, L. A. Baur, J. J. Wang, L. L. Hardy, E. Teber, A. Kifley, T. Y. Wong, & P. Mitchell. “Influence of physical activity and screen time on the retinal microvasculature in young children”, Arteriosclerosis, thrombosis, and vascular biology.  [Online]. Available: https://pubmed.ncbi.nlm.nih.gov/21508347/. [Accessed: 04-Jun-2020].
+
+[3.]{#ref3} “Spiker Box”, Backyard. [Online]. Available: https://backyardbrains.com/products/spikerBox. [Accessed: 04-Jun-2020].
+
+[4.]{#ref4} V. Roman, “Supervised Learning: Basics of Classification and Main Algorithms,” Medium, 31-Mar-2019. [Online]. Available: https://towardsdatascience.com/supervised-learning-basics-of-classification-and-main-algorithms-c16b06806cd3. [Accessed: 04-Jun-2020].
+
+[5.]{#ref5} “BackyardBrains”, Github. [Online]. Available: https://github.com/
+[6.]{#ref6} “SpikerShield”, Github. [Online]. Available: 
+https://github.com/BackyardBrains/SpikerShield/blob/master/Muscle/Documentation/Matlab/readSR.m. [Accessed: 04-Jun-2020].
+ 
+[7.]{#ref7} “Butterworth filter,” Wikipedia, 08-Mar-2020. [Online]. Available: https://en.wikipedia.org/wiki/Butterworth_filter. [Accessed: 04-Jun-2020].
+
+[8.]{#ref8} A. Liam & M. Wiener. “Classification and regression by randomForest”, R news, 2(3), 18-22, 2002.
+
+[9.]{#ref9} B. H. Menze, B. M. Kelm, R. Masuch, U. Himmelreich, P. Bachert, W. Petrich, & F. A. Hamprecht, “A comparison of random forest and its Gini importance with standard chemometric methods for the feature selection and classification of spectral data”, BMC bioinformatics, 10(1), 213, 2009.
+
+[10.]{#ref10} S. Pete, “PyGame - Python Game Development”, PyGame, 2011. [Online]. Available: https://www.pygame.org/news.
+
+[11.]{#ref11} D. Gurevich, “Tetris”, GitHub, 2017. [Online]. Available: https://github.com/davidgur/Tetris. [Accessed: 04-Jun-2020].
+
+[12.]{#ref12} Y. Bavafa-Toosi, “Butterworth Filters,” Introduction to Linear Control Systems, 2019. [Online]. Available: https://www.sciencedirect.com/topics/engineering/butterworth-filters. [Accessed: 04-Jun-2020].
+
+[13.]{#ref13} B. Farnworth, “EEG vs. MRI vs. fMRI - What are the Differences?,” imotions, 12-Jul-2019. [Online]. Available: https://imotions.com/blog/eeg-vs-mri-vs-fmri-differences/. [Accessed: 04-Jun-2020].
+
+[14.]{#ref14} R. Srinivasan, “Methods to Improve the Spatial Resolution of EEG,” The Neurosciences Institute, 10640 John Jay Hopkins Drive, San Diego, USA, 1999.
+
+[Figure 1]{#fig1}: Image sourced from https://backyardbrains.com/experiments/eog
+
+[Figure 2]{#fig2}: Image sourced from https://www.electronics-tutorials.ws/filter/filter_8.html
+
+<!-- APPENDIX -->
+# Appendix
+
+## GINI
+A Random Forest are commonly used for feature selection This tree-based strategies allows for an explicit feature elimination based on orthogonal splits in feature space. Nodes with the greatest decrease in *impurity* happen at the root of the trees, while notes with less decrease in impurity occur at the leaves. In this case, we can get importance of *variable j* by measuring its average amount of change for impurity decrease on all nodes in RF, denote by $VIM_{j}^{(Gini)}$. 
+$$VIM_{j}^{(Gini)}= \frac{1}{n} \sum_{i=1}^{n} VIM_{ij}^{(Gini)}$$ 
+Here j says variable j, n says number of decision trees in RF.
+
+
+## R to Python
+```{r, eval = FALSE}
+# Load model
+model <- readRDS("rf_model.rds")
+model <- readRDS("rfmodel_LRBLINK.rds")
+model <- readRDS("rfmodel_ALL_UBD.rds")
+
+nsteps = 1
+
+Begin_Training <- function(m){
+  model <- NA
+  if(m==1){
+    model <- readRDS("rfmodel_LRBLINK.rds")
+  } else if (m==2){
+    model <- readRDS("rf_model.rds")
+  } else if (m==3){
+    model <- readRDS("rfmodel_ALL_UBD.rds")
+  } else if (m==4){
+    model <- readRDS("SVMmodel_LRB.rds")
+  } else if (m==5){
+    model <- readRDS("SVMmodel_UBD.rds")
+  } else if (m==6){
+    model <- readRDS("SVMmodel_ALL_UBD.rds")
+  }
+  while (TRUE) {
+    wave_file <- paste("wave_file_",nsteps,".wav",sep="")
+    if (file.exists(wave_file)) {
+      Sys.sleep(0.1)
+      live_data<- readWave(wave_file)@left
+      
+      minindex=which.min(live_data)
+      first_max=-1000
+      second_max=-1000
+      if(minindex<100){
+        first_max=which.max(live_data)
+        first_half=live_data[1:first_max]
+        second_half=live_data[first_max+1:length(live_data)]
+        minindex=which.min(second_half)+first_max
+        second_max=which.max(live_data[minindex:length(live_data)])+minindex
+      }else{
+        first_max=which.max(live_data[1:minindex])
+        second_max=which.max(live_data[minindex:length(live_data)])+minindex
+      }
+      if(first_max<1000){
+        minindex=which.min(live_data)
+        first_max=which.max(live_data[1000:minindex])+1000
+        second_max=which.max(live_data[minindex:length(live_data)])+minindex
+      }
+      
+      two_peak_difference_time=second_max-first_max
+      peak_trough_diff_time=minindex-first_max
+      peak_trough_diff_amp=abs(live_data[first_max])-abs(live_data[minindex])
+      first_peak_bigger_second_peak=live_data[first_max]>live_data[second_max]
+      
+      Y_features <- cbind(
+      mean(live_data),
+      var(live_data),
+      min(live_data),
+      max(live_data),
+      two_peak_difference_time,
+      peak_trough_diff_time,
+      peak_trough_diff_amp,
+      first_peak_bigger_second_peak)
+      
+      #Y_features =  Y_features %>% as.double()
+      lapply(Y_features, as.numeric)
+
+      label_pred <- predict(model,Y_features) %>% as.character()
+      
+      write.table(label_pred, file = "instructions.txt", append = TRUE,row.names=F,quote = F,col.names=T,dec = "\n",sep = "\t")
+      
+      print("Predict Event: ")
+      print(label_pred)
+      #print("label: ")
+      #print(wave_label[fileID])
+      cat("# ---------------------- Next Turn----------------- #","\n")
+      nsteps <- nsteps+1
+      
+    }
+  }
+}
+
+nsteps=1
+Begin_Training(6)
+```
+

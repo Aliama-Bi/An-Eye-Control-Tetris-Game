@@ -1,0 +1,155 @@
+---
+title: "Training Model"
+author: '480139690'
+date: "11/05/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Loading Packages
+
+```{r message=FALSE}
+list.of.packages <- c("tsfeatures", "randomForest","dplyr")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)){
+  install.packages(new.packages)
+} 
+
+library(tsfeatures)
+library(randomForest)
+library(dplyr)
+library(tuneR)
+library(e1071)
+```
+
+Read Random Forest Model and wave sequence
+
+```{r}
+# Load model
+model <- readRDS("rf_model.rds")
+model <- readRDS("rfmodel_LRBLINK.rds")
+model <- readRDS("rfmodel_ALL_UBD.rds")
+# Load wave file 
+# wave_file <  ## add wave file address here##
+  
+# -------------- sample------------ #
+# wave_file <- readRDS("/Users/doctor/Documents/GitHub/Eye-Movement-Game/Best-Data/RDS_files/best_wave_seq.rds")
+# wave_label <- readRDS("/Users/doctor/Documents/GitHub/Eye-Movement-Game/Best-Data/RDS_files/best_wave_LABEL.rds")
+# ------------------------------------------ #
+```
+
+```{r warning=FALSE}
+nsteps = 1
+
+Begin_Training <- function(m){
+  model <- NA
+  if(m==1){
+    model <- readRDS("rfmodel_LRBLINK.rds")
+  } else if (m==2){
+    model <- readRDS("rf_model.rds")
+  } else if (m==3){
+    model <- readRDS("rfmodel_ALL_UBD.rds")
+  } else if (m==4){
+    model <- readRDS("SVMmodel_LRB.rds")
+  } else if (m==5){
+    model <- readRDS("SVMmodel_UBD.rds")
+  } else if (m==6){
+    model <- readRDS("SVMmodel_ALL_UBD.rds")
+  }
+  while (TRUE) {
+    
+    wave_file <- paste("wave_file_",nsteps,".wav",sep="")
+    if (file.exists(wave_file)) {
+      Sys.sleep(0.1)
+      live_data<- readWave(wave_file)@left
+      
+      minindex=which.min(live_data)
+      first_max=-1000
+      second_max=-1000
+      if(minindex<100){
+        first_max=which.max(live_data)
+        first_half=live_data[1:first_max]
+        second_half=live_data[first_max+1:length(live_data)]
+        minindex=which.min(second_half)+first_max
+        second_max=which.max(live_data[minindex:length(live_data)])+minindex
+      }else{
+        first_max=which.max(live_data[1:minindex])
+        second_max=which.max(live_data[minindex:length(live_data)])+minindex
+      }
+      if(first_max<1000){
+        minindex=which.min(live_data)
+        first_max=which.max(live_data[1000:minindex])+1000
+        second_max=which.max(live_data[minindex:length(live_data)])+minindex
+      }
+      
+      two_peak_difference_time=second_max-first_max
+      peak_trough_diff_time=minindex-first_max
+      peak_trough_diff_amp=abs(live_data[first_max])-abs(live_data[minindex])
+      first_peak_bigger_second_peak=live_data[first_max]>live_data[second_max]
+
+
+      Y_features <- cbind(
+      mean(live_data),
+      var(live_data),
+      min(live_data),
+      max(live_data),
+      two_peak_difference_time,
+      peak_trough_diff_time,
+      peak_trough_diff_amp,
+      first_peak_bigger_second_peak)
+      
+      lapply(Y_features, as.numeric)
+
+      label_pred <- predict(model,Y_features) %>% as.character()
+      
+      write.table(label_pred, file = "instructions.txt", append = TRUE,row.names=F,quote = F,col.names=T,dec = "\n",sep = "\t")
+      
+      print("Predict Event: ")
+      print(label_pred)
+      #print("label: ")
+      #print(wave_label[fileID])
+      cat("# ---------------------- Next Turn----------------- #","\n")
+      nsteps <- nsteps+1
+      
+      #Sys.sleep(0.2)
+      
+      
+      
+    }
+    
+  }
+
+
+}
+```
+
+
+
+
+
+```{r warning=FALSE, include=FALSE}
+nsteps=1
+Begin_Training(6)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
